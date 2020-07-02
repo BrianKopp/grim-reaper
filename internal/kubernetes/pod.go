@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/briankopp/grim-reaper/internal/config"
@@ -36,7 +37,7 @@ func (m *kubernetesPodEvictor) shouldEvict(pod v1.Pod) bool {
 		}
 	}
 
-	// don't evict if statefulset
+	return true
 }
 
 func getPodDaemonSet(pod v1.Pod) (bool, string) {
@@ -79,9 +80,10 @@ func (m *kubernetesPodEvictor) evict(pod v1.Pod, abort <-chan struct{}) error {
 					Name:      pod.Name,
 				},
 				DeleteOptions: &metav1.DeleteOptions{
-					GracePeriodSeconds: terminationGracePeriod,
+					GracePeriodSeconds: &terminationGracePeriod,
 				},
 			}
+
 			err := m.client.CoreV1().Pods(pod.Namespace).Evict(&evictOptions)
 
 			if err == nil {
@@ -109,9 +111,14 @@ func (m *kubernetesPodEvictor) evict(pod v1.Pod, abort <-chan struct{}) error {
 }
 
 func (m *kubernetesPodEvictor) waitToSeeIfPodDeletes(pod v1.Pod, now time.Time) error {
-	timeoutTime := now.Add(m.settings.DeletionTimeout)
+	timeoutTime := now.Add(m.settings.EvictDeletionTimeout)
 	for {
-		delPod, err := m.client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
+		if time.Now().After(timeoutTime) {
+			err := errors.New(fmt.Sprintf("pod %v did not delete after ambiguous evict outcome", pod.Name))
+			log.Error().Err(err).Str("podName", pod.Name).Msg("pod did not delete after ambiguous evict outcome")
+			return err
+		}
+		p, err := m.client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
 		if err != nil && apiErrors.IsNotFound(err) {
 			return nil
 		}
@@ -120,5 +127,9 @@ func (m *kubernetesPodEvictor) waitToSeeIfPodDeletes(pod v1.Pod, now time.Time) 
 			log.Error().Err(err).Str("namespace", pod.Namespace).Str("podName", pod.Name).Msg("error checking if pod exists")
 		}
 
+		if p.GetUID() != pod.GetUID() {
+			log.Debug().Str("podName", pod.Name).Msg("new pod with same name found")
+			return nil
+		}
 	}
 }

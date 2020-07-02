@@ -38,10 +38,10 @@ func (m *slackNotifier) Notify(success bool, err error, nodes []string) error {
 
 	slackMsg := slack.MsgOptionText(makeMessageString(success, err, nodes), false)
 
-	_, _, err := m.client.PostMessage(m.channel, slackMsg)
-	if err != nil {
-		log.Error().Err(err).Msg("error notifying slack of result")
-		return err
+	_, _, e := m.client.PostMessage(m.channel, slackMsg)
+	if e != nil {
+		log.Error().Err(e).Msg("error notifying slack of result")
+		return e
 	}
 
 	log.Info().Msg("successfully notified slack of result")

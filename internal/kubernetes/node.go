@@ -15,9 +15,10 @@ import (
 // NodeInterface handles node commands
 type NodeInterface interface {
 	ListNodes(labelSelector string) (*v1.NodeList, error)
-	CordonNode(name string)
-	MarkNodeToDrain(name string)
-	DrainNode(name string)
+	HasDealBreakerPods(nodeName string) (bool, error)
+	CordonNode(name string) error
+	MarkNodeToDrain(name string) error
+	DrainNode(name string) error
 }
 
 // kubernetesNodeInterface implements the NodeInterface using the standard golang client
@@ -79,12 +80,7 @@ func (m *kubernetesNodeInterface) listPodsToEvict(nodeName string) ([]v1.Pod, er
 	// filter out pods to evict
 	evictPods := []v1.Pod{}
 	for _, pod := range pods.Items {
-		evict, err := m.evictor.shouldEvict(pod)
-		if err != nil {
-			log.Error().Err(err).Str("node", nodeName).Str("pod", pod.Name).Msg("error checking if pod should be evicted")
-			return nil, errors.Wrapf(err, "error determining whether pod %v should be evicted from node %v", pod.Name, nodeName)
-		}
-		if evict {
+		if m.evictor.shouldEvict(pod) {
 			evictPods = append(evictPods, pod)
 		}
 	}
