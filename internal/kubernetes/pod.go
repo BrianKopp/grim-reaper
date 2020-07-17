@@ -22,9 +22,8 @@ type PodEvictor interface {
 
 // kubernetesPodEvictor implements pod eviction with kubernetes client
 type kubernetesPodEvictor struct {
-	dryRun   bool
-	client   kubernetes.Interface
 	settings config.Settings
+	client   kubernetes.Interface
 }
 
 func (m *kubernetesPodEvictor) shouldEvict(pod v1.Pod) bool {
@@ -54,10 +53,10 @@ func (m *kubernetesPodEvictor) daemonsetExists(namespace string, name string) (b
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			return false, nil
-		} else {
-			log.Error().Err(err).Str("namespace", namespace).Str("name", name).Msg("error getting daemonset")
-			return true, err
 		}
+
+		log.Error().Err(err).Str("namespace", namespace).Str("name", name).Msg("error getting daemonset")
+		return true, err
 	}
 	return true, nil
 }
@@ -107,7 +106,6 @@ func (m *kubernetesPodEvictor) evict(pod v1.Pod, abort <-chan struct{}) error {
 			time.Sleep(5 * time.Second)
 		}
 	}
-	return nil
 }
 
 func (m *kubernetesPodEvictor) waitToSeeIfPodDeletes(pod v1.Pod, now time.Time) error {

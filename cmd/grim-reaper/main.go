@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"time"
 
 	"github.com/briankopp/grim-reaper/internal/config"
+	intk8s "github.com/briankopp/grim-reaper/internal/kubernetes"
+	"github.com/briankopp/grim-reaper/internal/reaper"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -42,8 +46,13 @@ func main() {
 		leaderElectionRenewDeadline = flag.Duration("leader-renew-deadline", 20*time.Second, "leader election renewal deadline")
 	)
 	flag.Parse()
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	if *debugLog {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
 
 	config := config.Settings{
+		DryRun:                *dryRun,
 		MinNodes:              *minNodes,
 		MaxNodesDelete:        *maxNodesDelete,
 		FractionNodesToDelete: *fractionNodesDelete,
@@ -54,7 +63,10 @@ func main() {
 		EvictDeletionTimeout:  *deletionTimeout,
 		DelayAfterCordon:      *drainDelay,
 	}
-	assertConfigValid(config)
+	err := assertConfigValid(config)
+	if err != nil {
+		panic("configuration invalid")
+	}
 
 	// make the kubernetes config
 	k8sClient, err := clientcmd.BuildConfigFromFlags(*kubeAPIServer, *kubeConfigPath)
@@ -68,6 +80,10 @@ func main() {
 	defer cancel()
 
 	// acquire lock
+	id, err := os.Hostname()
+	if err != nil {
+		panic("error getting hostname")
+	}
 	lock, err := resourcelock.New(
 		resourcelock.ConfigMapsResourceLock,
 		*lockNamespace,
@@ -75,8 +91,7 @@ func main() {
 		clientSet.CoreV1(),
 		clientSet.CoordinationV1(),
 		resourcelock.ResourceLockConfig{
-			Identity:      id,
-			EventRecorder: kubernetes.NewEventRecorder(cs),
+			Identity: id, // TODO event notifier
 		},
 	)
 
@@ -108,10 +123,49 @@ func main() {
 	)
 }
 
-func assertConfigValid(config config.Settings) {
-	// TODO
+// assertConfigValid makes sure the configuration is valid
+func assertConfigValid(config config.Settings) error {
+	configInvalid := false
+	if config.MinNodes <= 0 {
+		log.Fatal().Msgf("config min nodes must be positive and non-zero, got %v", config.MinNodes)
+		configInvalid = true
+	}
+	if config.FractionNodesToDelete < 0 || config.FractionNodesToDelete >= 1 {
+		log.Fatal().Msgf("config fraction nodes to delete must be less than 1 and greater than or equal to 0, got %v", config.FractionNodesToDelete)
+		configInvalid = true
+	}
+
+	if configInvalid {
+		return errors.New("configuration is invalid")
+	}
+
+	return nil
 }
 
-func runGrimReaper(config config.Settings, client *kubernetes.Clientset) {
-	// TODO
+func runGrimReaper(config config.Settings, client *kubernetes.Clientset) error {
+	nodeClient := intk8s.NewNodeInterface(config, client)
+	reaper := reaper.NewGrimReaper(config, nodeClient)
+
+	reap, passover, err := reaper.GetNodesToReap()
+	if err != nil {
+		log.Error().Err(err).Msg("error getting nodes to reap")
+		return err
+	}
+
+	log.Info().Strs("passoverNodes", passover).Strs("reapNodes", reap).Msg("obtained nodes to reap")
+	err = reaper.MarkNodesForDestruction(reap)
+	if err != nil {
+		log.Error().Err(err).Strs("nodeNames", reap).Msg("error marking nodes for deletion")
+		return err
+	}
+	for _, node := range reap {
+		err = reaper.Harvest(node)
+		if err != nil {
+			log.Error().Err(err).Str("nodeName", node).Msg("error deleting node")
+			return err
+		}
+		log.Info().Str("nodeName", node).Msg("successfully deleted node")
+	}
+
+	return nil
 }

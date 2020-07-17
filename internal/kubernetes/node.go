@@ -23,10 +23,21 @@ type NodeInterface interface {
 
 // kubernetesNodeInterface implements the NodeInterface using the standard golang client
 type kubernetesNodeInterface struct {
-	dryRun   bool
+	settings config.Settings
 	client   kubernetes.Interface
 	evictor  PodEvictor
-	settings config.Settings
+}
+
+// NewNodeInterface makes a new node interface implemented for kubernetes
+func NewNodeInterface(settings config.Settings, client *kubernetes.Clientset) NodeInterface {
+	return &kubernetesNodeInterface{
+		settings: settings,
+		client:   client,
+		evictor: &kubernetesPodEvictor{
+			settings: settings,
+			client:   client,
+		},
+	}
 }
 
 // ListNodes fetches nodes using a label selector
@@ -42,10 +53,28 @@ func (m *kubernetesNodeInterface) ListNodes(labelSelector string) (*v1.NodeList,
 	return nodes, nil
 }
 
+// HasDealBreakerPods indicates whether there are pods on the node that are dealbreakers
+func (m *kubernetesNodeInterface) HasDealBreakerPods(name string) (bool, error) {
+	// TODO
+	return true, nil
+}
+
+// CordonNode cordons a node
+func (m *kubernetesNodeInterface) CordonNode(naem string) error {
+	// TODO
+	return nil
+}
+
+// MarkNodeToDrain marks a node that it will be drained
+func (m *kubernetesNodeInterface) MarkNodeToDrain(name string) error {
+	// TODO
+	return nil
+}
+
 // DrainNode handles node drain
 func (m *kubernetesNodeInterface) DrainNode(name string) error {
 	// if dry run, don't do anything
-	if m.dryRun {
+	if m.settings.DryRun {
 		log.Info().Str("nodeName", name).Msg("skipping drain node since dry run")
 		return nil
 	}

@@ -23,6 +23,14 @@ type theGrimReaper struct {
 	nodeClient kubernetes.NodeInterface
 }
 
+// NewGrimReaper makes a new implementation of the grim reaper
+func NewGrimReaper(config config.Settings, nodeClient kubernetes.NodeInterface) GrimReaper {
+	return &theGrimReaper{
+		config:     config,
+		nodeClient: nodeClient,
+	}
+}
+
 // GetNodesToReap determines which nodes will be deleted
 func (m *theGrimReaper) GetNodesToReap() (reap []string, passover []string, err error) {
 	allNodes, err := m.nodeClient.ListNodes(m.config.NodeLabelSelector)
@@ -33,8 +41,8 @@ func (m *theGrimReaper) GetNodesToReap() (reap []string, passover []string, err 
 	// TODO grab nodes that are already marked for destruction
 
 	// get the number of nodes to try to reap
-	numNodes := int32(len(allNodes.Items))
-	nodesToReap := int32(m.config.FractionNodesToDelete * float64(numNodes))
+	numNodes := len(allNodes.Items)
+	nodesToReap := int(m.config.FractionNodesToDelete * float64(numNodes))
 	if (numNodes - nodesToReap) < m.config.MinNodes {
 		nodesToReap = numNodes - m.config.MinNodes
 	}
@@ -79,7 +87,7 @@ func (m *theGrimReaper) GetNodesToReap() (reap []string, passover []string, err 
 			reap = append(reap, node.Name)
 		}
 
-		if int32(len(reap)) == nodesToReap {
+		if len(reap) == nodesToReap {
 			return reap, passover, nil
 		}
 	}

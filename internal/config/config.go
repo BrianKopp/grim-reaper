@@ -4,6 +4,8 @@ import "time"
 
 // Settings holds application settings
 type Settings struct {
+	// DryRun controls whether mutating actions will take place or not
+	DryRun bool
 	// MinNodes is the minimum number of nodes allowable in the cluster.
 	// The grim-reaper will not delete nodes if it will result in fewer than this number being available
 	MinNodes int
